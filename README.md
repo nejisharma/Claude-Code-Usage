@@ -149,7 +149,8 @@ MIT
 
 ## Author
 
-Neeraj Sharma(https://neeraj.ca)
+Neeraj Sharma
+https://neeraj.ca
 
 ------
 
