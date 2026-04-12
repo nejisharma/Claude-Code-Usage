@@ -1,0 +1,124 @@
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - platform: windows-latest
+            target: x86_64-pc-windows-msvc
+          - platform: macos-latest
+            target: aarch64-apple-darwin
+          - platform: macos-13
+            target: x86_64-apple-darwin
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          rustup target add ${{ matrix.target }}
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Build Tauri app
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: '${{ github.ref_name }}'
+          releaseBody: |
+            ## Claude Code Usage ${{ github.ref_name }}
+
+            Desktop app to monitor your Claude Code usage in real-time.
+
+            ### Downloads
+
+            | Platform | File |
+            |----------|------|
+            | Windows (exe) | See assets below |
+            | Windows (msi) | See assets below |
+            | macOS (Apple Silicon) | See assets below |
+            | macOS (Intel) | See assets below |
+
+            ### Requirements
+            - [Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview) installed and logged in
+          releaseDraft: false
+          prerelease: false
+          args: --target ${{ matrix.target }}
+
+  update-readme:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Update README download links
+        run: |
+          VERSION="${GITHUB_REF_NAME}"
+
+          cat > /tmp/downloads.md << 'HEADER'
+          | Platform | Installer |
+          |----------|-----------|
+          HEADER
+
+          echo "| Windows (exe) | [Download](https://github.com/${{ github.repository }}/releases/download/${VERSION}/Claude.Code.Usage_${VERSION#v}_x64-setup.exe) |" >> /tmp/downloads.md
+          echo "| Windows (msi) | [Download](https://github.com/${{ github.repository }}/releases/download/${VERSION}/Claude.Code.Usage_${VERSION#v}_x64_en-US.msi) |" >> /tmp/downloads.md
+          echo "| macOS (Apple Silicon) | [Download](https://github.com/${{ github.repository }}/releases/download/${VERSION}/Claude.Code.Usage_${VERSION#v}_aarch64.dmg) |" >> /tmp/downloads.md
+          echo "| macOS (Intel) | [Download](https://github.com/${{ github.repository }}/releases/download/${VERSION}/Claude.Code.Usage_${VERSION#v}_x64.dmg) |" >> /tmp/downloads.md
+          echo "" >> /tmp/downloads.md
+          echo "Or browse all releases: [github.com/${{ github.repository }}/releases](https://github.com/${{ github.repository }}/releases)" >> /tmp/downloads.md
+
+          # Replace the download section in README
+          python3 << 'PYEOF'
+          import re
+
+          with open('README.md', 'r') as f:
+              content = f.read()
+
+          with open('/tmp/downloads.md', 'r') as f:
+              new_table = f.read()
+
+          # Replace everything between "### Download" and "### Requirements"
+          pattern = r'(### Download\n\n).*?((?=\n### Requirements))'
+          replacement = r'\1' + new_table + '\n'
+          content = re.sub(pattern, replacement, content, flags=re.DOTALL)
+
+          with open('README.md', 'w') as f:
+              f.write(content)
+          PYEOF
+
+      - name: Commit and push README
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add README.md
+          git diff --cached --quiet || git commit -m "Update download links for ${GITHUB_REF_NAME}"
+          git push
