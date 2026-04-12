@@ -11,13 +11,14 @@ permissions:
 jobs:
   build:
     strategy:
+      fail-fast: false
       matrix:
         include:
           - platform: windows-latest
             target: x86_64-pc-windows-msvc
           - platform: macos-latest
             target: aarch64-apple-darwin
-          - platform: macos-13
+          - platform: macos-14
             target: x86_64-apple-darwin
 
     runs-on: ${{ matrix.platform }}
@@ -29,20 +30,15 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
 
-      - name: Install dependencies (macOS)
-        if: runner.os == 'macOS'
-        run: |
-          rustup target add ${{ matrix.target }}
-
       - name: Install npm dependencies
-        run: npm ci
+        run: npm install
 
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
@@ -81,39 +77,30 @@ jobs:
           ref: main
 
       - name: Update README download links
+        env:
+          VERSION: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
         run: |
-          VERSION="${GITHUB_REF_NAME}"
+          V="${VERSION#v}"
 
-          cat > /tmp/downloads.md << 'HEADER'
-          | Platform | Installer |
-          |----------|-----------|
-          HEADER
+          TABLE="| Platform | Installer |\n|----------|-----------|"
+          TABLE="${TABLE}\n| Windows (exe) | [Download](https://github.com/${REPO}/releases/download/${VERSION}/Claude.Code.Usage_${V}_x64-setup.exe) |"
+          TABLE="${TABLE}\n| Windows (msi) | [Download](https://github.com/${REPO}/releases/download/${VERSION}/Claude.Code.Usage_${V}_x64_en-US.msi) |"
+          TABLE="${TABLE}\n| macOS (Apple Silicon) | [Download](https://github.com/${REPO}/releases/download/${VERSION}/Claude.Code.Usage_${V}_aarch64.dmg) |"
+          TABLE="${TABLE}\n| macOS (Intel) | [Download](https://github.com/${REPO}/releases/download/${VERSION}/Claude.Code.Usage_${V}_x64.dmg) |"
+          TABLE="${TABLE}\n\nOr browse all releases: [github.com/${REPO}/releases](https://github.com/${REPO}/releases)"
 
-          echo "| Windows (exe) | [Download](https://github.com/${{ github.repository }}/releases/download/${VERSION}/Claude.Code.Usage_${VERSION#v}_x64-setup.exe) |" >> /tmp/downloads.md
-          echo "| Windows (msi) | [Download](https://github.com/${{ github.repository }}/releases/download/${VERSION}/Claude.Code.Usage_${VERSION#v}_x64_en-US.msi) |" >> /tmp/downloads.md
-          echo "| macOS (Apple Silicon) | [Download](https://github.com/${{ github.repository }}/releases/download/${VERSION}/Claude.Code.Usage_${VERSION#v}_aarch64.dmg) |" >> /tmp/downloads.md
-          echo "| macOS (Intel) | [Download](https://github.com/${{ github.repository }}/releases/download/${VERSION}/Claude.Code.Usage_${VERSION#v}_x64.dmg) |" >> /tmp/downloads.md
-          echo "" >> /tmp/downloads.md
-          echo "Or browse all releases: [github.com/${{ github.repository }}/releases](https://github.com/${{ github.repository }}/releases)" >> /tmp/downloads.md
-
-          # Replace the download section in README
-          python3 << 'PYEOF'
-          import re
-
+          python3 -c "
+          import re, os
+          table = os.environ['TABLE'].replace('\\\\n', '\n')
           with open('README.md', 'r') as f:
               content = f.read()
-
-          with open('/tmp/downloads.md', 'r') as f:
-              new_table = f.read()
-
-          # Replace everything between "### Download" and "### Requirements"
-          pattern = r'(### Download\n\n).*?((?=\n### Requirements))'
-          replacement = r'\1' + new_table + '\n'
+          pattern = r'(### Download\n\n).*?(\n\n### Requirements)'
+          replacement = r'\1' + table + r'\2'
           content = re.sub(pattern, replacement, content, flags=re.DOTALL)
-
           with open('README.md', 'w') as f:
               f.write(content)
-          PYEOF
+          "
 
       - name: Commit and push README
         run: |
