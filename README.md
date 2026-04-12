@@ -49,10 +49,12 @@ The app reads local data from `~/.claude/` (created by Claude Code) and optional
 
 ### Download
 
-| Platform | Installer | Size |
-|----------|-----------|------|
-| Windows (recommended) | [Claude Code Usage_1.0.0_x64-setup.exe](https://github.com/nejisharma/Claude-Code-Usage/releases/download/v1.0.0/Claude.Code.Usage_1.0.0_x64-setup.exe) | 3.6 MB |
-| Windows (MSI) | [Claude Code Usage_1.0.0_x64_en-US.msi](https://github.com/nejisharma/Claude-Code-Usage/releases/download/v1.0.0/Claude.Code.Usage_1.0.0_x64_en-US.msi) | 5.1 MB |
+| Platform | Installer |
+|----------|-----------|
+| Windows (exe) | [Download](https://github.com/nejisharma/Claude-Code-Usage/releases/download/v1.0.1/Claude.Code.Usage_1.0.1_x64-setup.exe) |
+| Windows (msi) | [Download](https://github.com/nejisharma/Claude-Code-Usage/releases/download/v1.0.1/Claude.Code.Usage_1.0.1_x64_en-US.msi) |
+| macOS (Apple Silicon) | [Download](https://github.com/nejisharma/Claude-Code-Usage/releases/download/v1.0.1/Claude.Code.Usage_1.0.1_aarch64.dmg) |
+| macOS (Intel) | [Download](https://github.com/nejisharma/Claude-Code-Usage/releases/download/v1.0.1/Claude.Code.Usage_1.0.1_x64.dmg) |
 
 Or browse all releases: [github.com/nejisharma/Claude-Code-Usage/releases](https://github.com/nejisharma/Claude-Code-Usage/releases)
 
