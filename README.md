@@ -149,8 +149,8 @@ MIT
 
 ## Author
 
-Neeraj (me@neeraj.ca)
+Neeraj Sharma(https://neeraj.ca)
 
 ---
 
-Built with Claude Code.
+Built with Claude Code. ♥
