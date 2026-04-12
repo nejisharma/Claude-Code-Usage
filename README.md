@@ -156,6 +156,6 @@ MIT
 Neeraj Sharma
 https://neeraj.ca
 
-------
+---
 
 Built with Claude Code. ♥

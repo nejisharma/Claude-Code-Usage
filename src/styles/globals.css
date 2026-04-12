@@ -584,6 +584,28 @@ body {
 /* ========== Empty text ========== */
 .empty-text { color: var(--text-muted); font-size: 13px; text-align: center; padding: 20px 0; }
 
+/* ========== Model Cost Comparison ========== */
+.model-cost-inner { height: 100%; display: flex; flex-direction: column; gap: 12px; }
+.model-cost-chart { flex-shrink: 0; }
+
+.model-cost-table { overflow: auto; }
+.model-cost-table table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.model-cost-table th {
+  text-align: left; padding: 6px 10px; font-size: 10px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted);
+  border-bottom: 1px solid var(--border); white-space: nowrap;
+}
+.model-cost-table td {
+  padding: 8px 10px; border-bottom: 1px solid rgba(42, 42, 58, 0.4);
+  font-variant-numeric: tabular-nums; color: var(--text-secondary);
+}
+.model-cost-table th.num, .model-cost-table td.num { text-align: right; }
+.model-cost-table .cost-cell { color: var(--accent-purple) !important; font-weight: 600; }
+.model-cost-dot {
+  display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+  margin-right: 6px; vertical-align: middle;
+}
+
 /* ========== Scrollbar ========== */
 ::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }

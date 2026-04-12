@@ -22,6 +22,7 @@ import DailyTokens from "./DailyTokens";
 import SessionTimeline from "./SessionTimeline";
 import CacheEfficiency from "./CacheEfficiency";
 import TopProjects from "./TopProjects";
+import ModelCostComparison from "./ModelCostComparison";
 
 interface Props {
   data: UsageData;
@@ -83,12 +84,13 @@ export default function Dashboard({ data, onRefresh, loading }: Props) {
       case "session-timeline": return <SessionTimeline weekly={data.weekly} />;
       case "projects": return <ProjectsTable projects={data.projects} />;
       case "model-breakdown": return <ModelBreakdown models={data.modelUsage} />;
+      case "model-cost": return <ModelCostComparison models={data.modelUsage} />;
       default: return null;
     }
   }
 
   // Classify widgets by size for CSS grid placement
-  const fullWidthIds = new Set(["quick-stats", "projects", "model-breakdown"]);
+  const fullWidthIds = new Set(["quick-stats", "projects", "model-breakdown", "model-cost"]);
   const chartIds = new Set(["weekly-activity", "token-dist", "cost-breakdown", "top-projects", "daily-tokens", "session-timeline"]);
 
   return (

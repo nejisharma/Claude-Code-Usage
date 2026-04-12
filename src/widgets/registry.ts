@@ -24,6 +24,7 @@ export const WIDGET_DEFS: WidgetDef[] = [
   { id: "session-timeline",name: "Session Timeline",    tooltip: "Sessions and tool call activity over the last 7 days.", defaultW: 6,  defaultH: 5, minW: 4, minH: 4 },
   { id: "projects",        name: "Projects",            tooltip: "All projects with usage stats. Click column headers to sort. Deleting a folder from ~/.claude/projects/ only removes history, not your code.", defaultW: 12, defaultH: 7, minW: 6, minH: 4 },
   { id: "model-breakdown", name: "Model Breakdown",     tooltip: "Token usage broken down by Claude model (Opus, Sonnet, Haiku).", defaultW: 12, defaultH: 4, minW: 4, minH: 3 },
+  { id: "model-cost",      name: "Model Cost Comparison", tooltip: "Cost breakdown by model using API pricing. Shows input, output, and cache costs per model so you can see which model is most cost-effective for your usage.", defaultW: 12, defaultH: 5, minW: 6, minH: 4 },
 ];
 
 export function getDefaultLayout(): Layout[] {
