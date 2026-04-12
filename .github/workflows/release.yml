@@ -77,30 +77,43 @@ jobs:
           ref: main
 
       - name: Update README download links
-        env:
-          VERSION: ${{ github.ref_name }}
-          REPO: ${{ github.repository }}
         run: |
+          VERSION="${GITHUB_REF_NAME}"
           V="${VERSION#v}"
+          REPO="${{ github.repository }}"
 
-          TABLE="| Platform | Installer |\n|----------|-----------|"
-          TABLE="${TABLE}\n| Windows (exe) | [Download](https://github.com/${REPO}/releases/download/${VERSION}/Claude.Code.Usage_${V}_x64-setup.exe) |"
-          TABLE="${TABLE}\n| Windows (msi) | [Download](https://github.com/${REPO}/releases/download/${VERSION}/Claude.Code.Usage_${V}_x64_en-US.msi) |"
-          TABLE="${TABLE}\n| macOS (Apple Silicon) | [Download](https://github.com/${REPO}/releases/download/${VERSION}/Claude.Code.Usage_${V}_aarch64.dmg) |"
-          TABLE="${TABLE}\n| macOS (Intel) | [Download](https://github.com/${REPO}/releases/download/${VERSION}/Claude.Code.Usage_${V}_x64.dmg) |"
-          TABLE="${TABLE}\n\nOr browse all releases: [github.com/${REPO}/releases](https://github.com/${REPO}/releases)"
+          # Write the new download table to a temp file
+          cat > /tmp/table.md << EOF
+          | Platform | Installer |
+          |----------|-----------|
+          | Windows (exe) | [Download](https://github.com/${REPO}/releases/download/${VERSION}/Claude.Code.Usage_${V}_x64-setup.exe) |
+          | Windows (msi) | [Download](https://github.com/${REPO}/releases/download/${VERSION}/Claude.Code.Usage_${V}_x64_en-US.msi) |
+          | macOS (Apple Silicon) | [Download](https://github.com/${REPO}/releases/download/${VERSION}/Claude.Code.Usage_${V}_aarch64.dmg) |
+          | macOS (Intel) | [Download](https://github.com/${REPO}/releases/download/${VERSION}/Claude.Code.Usage_${V}_x64.dmg) |
 
-          python3 -c "
-          import re, os
-          table = os.environ['TABLE'].replace('\\\\n', '\n')
+          Or browse all releases: [github.com/${REPO}/releases](https://github.com/${REPO}/releases)
+          EOF
+
+          # Strip leading whitespace from heredoc
+          sed -i 's/^          //' /tmp/table.md
+
+          # Replace download section in README using Python
+          python3 << 'PYEOF'
+          import re
+
+          with open('/tmp/table.md', 'r') as f:
+              table = f.read().strip()
+
           with open('README.md', 'r') as f:
               content = f.read()
+
           pattern = r'(### Download\n\n).*?(\n\n### Requirements)'
-          replacement = r'\1' + table + r'\2'
+          replacement = r'\1' + table.replace('\\', '\\\\') + r'\2'
           content = re.sub(pattern, replacement, content, flags=re.DOTALL)
+
           with open('README.md', 'w') as f:
               f.write(content)
-          "
+          PYEOF
 
       - name: Commit and push README
         run: |
