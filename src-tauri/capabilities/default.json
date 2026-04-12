@@ -1,0 +1,15 @@
+{
+  "$schema": "https://raw.githubusercontent.com/nickhartjes/tauri/refs/heads/dev/crates/tauri-utils/schema/capability.schema.json",
+  "identifier": "default",
+  "description": "Capability for the main window",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "shell:allow-open",
+    "core:window:default",
+    "core:window:allow-close",
+    "core:window:allow-hide",
+    "core:window:allow-show",
+    "core:window:allow-set-focus"
+  ]
+}
