@@ -4,6 +4,8 @@ A lightweight desktop app that shows your Claude Code usage stats in real-time. 
 
 ![Claude Code Usage Dashboard](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS-blue) ![License](https://img.shields.io/badge/License-MIT-green)
 
+![alt text](image.png)
+
 ## Features
 
 - **Real-time plan usage** — Shows exact session (5h rolling) and weekly usage percentages from Anthropic's API
