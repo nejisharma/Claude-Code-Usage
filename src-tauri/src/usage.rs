@@ -20,8 +20,42 @@ pub struct UsageData {
     pub rate_limits: RateLimits,
     pub projects: Vec<ProjectStats>,
     pub model_usage: HashMap<String, ModelTokens>,
+    pub timeline: TimelineData,
     pub total_sessions: u64,
     pub total_messages: u64,
+}
+
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct TimelineData {
+    /// Daily activity for the last 365 days (for heatmap)
+    pub daily_activity: Vec<HeatmapDay>,
+    /// Daily token counts by model (for models timeline chart)
+    pub daily_by_model: Vec<DailyModelTokens>,
+    /// Number of days with any activity
+    pub active_days: u64,
+    /// Current consecutive day streak ending today
+    pub current_streak: u64,
+    /// Longest consecutive day streak ever
+    pub longest_streak: u64,
+    /// Hour of day with most activity (0-23)
+    pub peak_hour: u32,
+    /// Most-used model
+    pub favorite_model: String,
+}
+
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct HeatmapDay {
+    pub date: String,
+    pub count: u64,
+}
+
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct DailyModelTokens {
+    pub date: String,
+    pub tokens_by_model: HashMap<String, u64>,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -204,6 +238,7 @@ pub fn collect_usage_data() -> Result<UsageData, Box<dyn std::error::Error>> {
             rate_limits: empty_rate_limits(),
             projects: vec![],
             model_usage: HashMap::new(),
+            timeline: empty_timeline(),
             total_sessions: 0,
             total_messages: 0,
         });
@@ -214,6 +249,7 @@ pub fn collect_usage_data() -> Result<UsageData, Box<dyn std::error::Error>> {
     let weekly = build_weekly_from_jsonl(&claude);
     let rate_limits = compute_rate_limits(&claude);
     let projects = collect_project_stats(&claude);
+    let timeline = collect_timeline_data(&claude);
 
     Ok(UsageData {
         installed: true,
@@ -222,6 +258,7 @@ pub fn collect_usage_data() -> Result<UsageData, Box<dyn std::error::Error>> {
         rate_limits,
         projects,
         model_usage: stats.model_usage,
+        timeline,
         total_sessions: stats.total_sessions,
         total_messages: stats.total_messages,
     })
@@ -1142,4 +1179,235 @@ fn collect_project_stats(claude_dir: &PathBuf) -> Vec<ProjectStats> {
     // Sort by last active (most recent first)
     projects.sort_by(|a, b| b.last_active_at.cmp(&a.last_active_at));
     projects
+}
+
+fn empty_timeline() -> TimelineData {
+    TimelineData {
+        daily_activity: vec![],
+        daily_by_model: vec![],
+        active_days: 0,
+        current_streak: 0,
+        longest_streak: 0,
+        peak_hour: 0,
+        favorite_model: String::new(),
+    }
+}
+
+/// Scan ALL project JSONL files to build a year-long timeline of activity.
+/// Calculates per-day token counts, per-model daily tokens, streaks, peak hour,
+/// favorite model, and active days.
+fn collect_timeline_data(claude_dir: &PathBuf) -> TimelineData {
+    let projects_dir = claude_dir.join("projects");
+    if !projects_dir.exists() {
+        return empty_timeline();
+    }
+
+    let today = chrono::Local::now().date_naive();
+    let year_ago = today - chrono::Duration::days(365);
+    let year_ago_str = year_ago.format("%Y-%m-%d").to_string();
+
+    // date -> total message count
+    let mut daily_counts: HashMap<String, u64> = HashMap::new();
+    // date -> model -> tokens
+    let mut daily_model_tokens: HashMap<String, HashMap<String, u64>> = HashMap::new();
+    // hour (0-23) -> count
+    let mut hour_counts: HashMap<u32, u64> = HashMap::new();
+    // model -> total tokens (for favorite)
+    let mut model_totals: HashMap<String, u64> = HashMap::new();
+
+    let project_entries = match fs::read_dir(&projects_dir) {
+        Ok(e) => e,
+        Err(_) => return empty_timeline(),
+    };
+
+    for proj_entry in project_entries.flatten() {
+        let proj_path = proj_entry.path();
+        if !proj_path.is_dir() {
+            continue;
+        }
+
+        // Skip non-project dirs
+        if let Some(name) = proj_entry.file_name().to_str() {
+            let lower = name.to_lowercase();
+            if lower.contains("claude-mem")
+                || lower.contains("observer-session")
+                || name.starts_with('.')
+            {
+                continue;
+            }
+        }
+
+        let files = match fs::read_dir(&proj_path) {
+            Ok(f) => f,
+            Err(_) => continue,
+        };
+
+        for file_entry in files.flatten() {
+            let path = file_entry.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
+                continue;
+            }
+
+            let content = match fs::read_to_string(&path) {
+                Ok(c) => c,
+                Err(_) => continue,
+            };
+
+            for line in content.lines() {
+                let val: serde_json::Value = match serde_json::from_str(line) {
+                    Ok(v) => v,
+                    Err(_) => continue,
+                };
+
+                if val.get("type").and_then(|t| t.as_str()) != Some("assistant") {
+                    continue;
+                }
+
+                let timestamp = match val.get("timestamp").and_then(|t| t.as_str()) {
+                    Some(t) => t,
+                    None => continue,
+                };
+
+                // Only last year
+                let date = &timestamp[..10];
+                if date < year_ago_str.as_str() {
+                    continue;
+                }
+
+                let usage = val.get("message").and_then(|m| m.get("usage"));
+                let model = val
+                    .get("message")
+                    .and_then(|m| m.get("model"))
+                    .and_then(|m| m.as_str())
+                    .unwrap_or("unknown")
+                    .to_string();
+
+                // Count messages per day
+                *daily_counts.entry(date.to_string()).or_insert(0) += 1;
+
+                // Extract hour from timestamp (format: YYYY-MM-DDTHH:MM:SS)
+                if timestamp.len() >= 13 {
+                    if let Ok(h) = timestamp[11..13].parse::<u32>() {
+                        *hour_counts.entry(h).or_insert(0) += 1;
+                    }
+                }
+
+                // Accumulate tokens per model per day
+                if let Some(u) = usage {
+                    let inp = u.get("input_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
+                    let out = u.get("output_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
+                    let total = inp + out; // exclude cache tokens for "real" usage
+
+                    let day_map = daily_model_tokens
+                        .entry(date.to_string())
+                        .or_default();
+                    *day_map.entry(model.clone()).or_insert(0) += total;
+                    *model_totals.entry(model).or_insert(0) += total;
+                }
+            }
+        }
+    }
+
+    // Build 365-day heatmap (fill in zeros for days with no activity)
+    let mut daily_activity: Vec<HeatmapDay> = Vec::with_capacity(365);
+    for i in 0..365 {
+        let d = year_ago + chrono::Duration::days(i + 1);
+        let ds = d.format("%Y-%m-%d").to_string();
+        let count = daily_counts.get(&ds).copied().unwrap_or(0);
+        daily_activity.push(HeatmapDay { date: ds, count });
+    }
+
+    // Build daily_by_model sorted by date
+    let mut daily_by_model: Vec<DailyModelTokens> = daily_model_tokens
+        .into_iter()
+        .map(|(date, tokens_by_model)| DailyModelTokens { date, tokens_by_model })
+        .collect();
+    daily_by_model.sort_by(|a, b| a.date.cmp(&b.date));
+
+    // Active days = days with any activity
+    let active_days = daily_counts.len() as u64;
+
+    // Calculate streaks
+    let (current_streak, longest_streak) =
+        calculate_streaks(&daily_counts, today);
+
+    // Peak hour (hour with highest count)
+    let peak_hour = hour_counts
+        .iter()
+        .max_by_key(|(_, count)| *count)
+        .map(|(h, _)| *h)
+        .unwrap_or(0);
+
+    // Favorite model (most tokens)
+    let favorite_model = model_totals
+        .iter()
+        .max_by_key(|(_, tokens)| *tokens)
+        .map(|(m, _)| m.clone())
+        .unwrap_or_default();
+
+    TimelineData {
+        daily_activity,
+        daily_by_model,
+        active_days,
+        current_streak,
+        longest_streak,
+        peak_hour,
+        favorite_model,
+    }
+}
+
+/// Returns (current_streak, longest_streak). A streak is consecutive days with activity.
+/// Current streak must include today (or yesterday if today has no activity yet).
+fn calculate_streaks(
+    daily_counts: &HashMap<String, u64>,
+    today: chrono::NaiveDate,
+) -> (u64, u64) {
+    let mut longest: u64 = 0;
+    let mut current: u64 = 0;
+
+    // Gather all dates with activity, sorted
+    let mut dates: Vec<chrono::NaiveDate> = daily_counts
+        .keys()
+        .filter_map(|s| chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").ok())
+        .collect();
+    dates.sort();
+
+    if dates.is_empty() {
+        return (0, 0);
+    }
+
+    // Calculate longest streak
+    let mut run: u64 = 1;
+    for i in 1..dates.len() {
+        let prev = dates[i - 1];
+        let curr = dates[i];
+        if curr == prev + chrono::Duration::days(1) {
+            run += 1;
+            if run > longest {
+                longest = run;
+            }
+        } else {
+            run = 1;
+        }
+    }
+    if run > longest {
+        longest = run;
+    }
+
+    // Calculate current streak: count back from today (or yesterday if today has no activity)
+    let mut check_date = today;
+    if !daily_counts.contains_key(&check_date.format("%Y-%m-%d").to_string()) {
+        check_date = today - chrono::Duration::days(1);
+    }
+    loop {
+        let ds = check_date.format("%Y-%m-%d").to_string();
+        if daily_counts.contains_key(&ds) {
+            current += 1;
+            check_date -= chrono::Duration::days(1);
+        } else {
+            break;
+        }
+    }
+
+    (current, longest)
 }

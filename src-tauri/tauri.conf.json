@@ -1,7 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/nickhartjes/tauri/refs/heads/dev/crates/tauri-schema-generator/schemas/config.schema.json",
   "productName": "Claude Code Usage",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "identifier": "com.claudecodeusage.dashboard",
   "build": {
     "frontendDist": "../dist",
