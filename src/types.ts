@@ -5,8 +5,29 @@ export interface UsageData {
   rateLimits: RateLimits;
   projects: ProjectStats[];
   modelUsage: Record<string, ModelTokens>;
+  timeline: TimelineData;
   totalSessions: number;
   totalMessages: number;
+}
+
+export interface TimelineData {
+  dailyActivity: HeatmapDay[];
+  dailyByModel: DailyModelTokens[];
+  activeDays: number;
+  currentStreak: number;
+  longestStreak: number;
+  peakHour: number;
+  favoriteModel: string;
+}
+
+export interface HeatmapDay {
+  date: string;
+  count: number;
+}
+
+export interface DailyModelTokens {
+  date: string;
+  tokensByModel: Record<string, number>;
 }
 
 export interface RateLimits {

@@ -22,6 +22,8 @@ export const WIDGET_DEFS: WidgetDef[] = [
   { id: "top-projects",    name: "Top Projects",        tooltip: "Top 5 projects ranked by total token consumption.", defaultW: 6,  defaultH: 5, minW: 4, minH: 4 },
   { id: "daily-tokens",    name: "Daily Token Types",   tooltip: "Messages and tool calls per day over the last 7 days.", defaultW: 6,  defaultH: 5, minW: 4, minH: 4 },
   { id: "session-timeline",name: "Session Timeline",    tooltip: "Sessions and tool call activity over the last 7 days.", defaultW: 6,  defaultH: 5, minW: 4, minH: 4 },
+  { id: "activity-heatmap", name: "Activity Heatmap",   tooltip: "GitHub-style activity graph showing your Claude Code usage over the last 6 months, plus streak stats and fun token comparisons.", defaultW: 12, defaultH: 7, minW: 6, minH: 5 },
+  { id: "models-timeline", name: "Models Timeline",     tooltip: "Daily token usage per model over time. Toggle between 7 days, 30 days, or all-time to see how your model usage has evolved.", defaultW: 12, defaultH: 7, minW: 6, minH: 5 },
   { id: "projects",        name: "Projects",            tooltip: "All projects with usage stats. Click column headers to sort. Deleting a folder from ~/.claude/projects/ only removes history, not your code.", defaultW: 12, defaultH: 7, minW: 6, minH: 4 },
   { id: "model-breakdown", name: "Model Breakdown",     tooltip: "Token usage broken down by Claude model (Opus, Sonnet, Haiku).", defaultW: 12, defaultH: 4, minW: 4, minH: 3 },
   { id: "model-cost",      name: "Model Cost Comparison", tooltip: "Cost breakdown by model using API pricing. Shows input, output, and cache costs per model so you can see which model is most cost-effective for your usage.", defaultW: 12, defaultH: 5, minW: 6, minH: 4 },
@@ -31,36 +33,48 @@ export function getDefaultLayout(): Layout[] {
   let y = 0;
   const layout: Layout[] = [];
 
-  // Row 1: Quick Stats (full width)
+  // Quick Stats (full width)
   layout.push({ i: "quick-stats", x: 0, y, w: 12, h: 2 });
   y += 2;
 
-  // Row 2: Rate Limits + Session + Cache Efficiency
+  // Rate Limits + Session + Cache Efficiency
   layout.push({ i: "rate-limits", x: 0, y, w: 4, h: 5 });
   layout.push({ i: "session", x: 4, y, w: 4, h: 5 });
   layout.push({ i: "cache-efficiency", x: 8, y, w: 4, h: 5 });
   y += 5;
 
-  // Row 3: Weekly Activity + Token Distribution
+  // Weekly Activity + Token Distribution
   layout.push({ i: "weekly-activity", x: 0, y, w: 6, h: 5 });
   layout.push({ i: "token-dist", x: 6, y, w: 6, h: 5 });
   y += 5;
 
-  // Row 4: Cost Breakdown + Top Projects
+  // Activity Heatmap (full width)
+  layout.push({ i: "activity-heatmap", x: 0, y, w: 12, h: 7 });
+  y += 7;
+
+  // Models Timeline (full width)
+  layout.push({ i: "models-timeline", x: 0, y, w: 12, h: 7 });
+  y += 7;
+
+  // Cost Breakdown + Top Projects
   layout.push({ i: "cost-breakdown", x: 0, y, w: 6, h: 5 });
   layout.push({ i: "top-projects", x: 6, y, w: 6, h: 5 });
   y += 5;
 
-  // Row 5: Daily Tokens + Session Timeline
+  // Daily Tokens + Session Timeline
   layout.push({ i: "daily-tokens", x: 0, y, w: 6, h: 5 });
   layout.push({ i: "session-timeline", x: 6, y, w: 6, h: 5 });
   y += 5;
 
-  // Row 6: Projects table (full width)
+  // Projects (full width)
   layout.push({ i: "projects", x: 0, y, w: 12, h: 7 });
   y += 7;
 
-  // Row 7: Model Breakdown (full width)
+  // Model Cost Comparison (full width)
+  layout.push({ i: "model-cost", x: 0, y, w: 12, h: 5 });
+  y += 5;
+
+  // Model Breakdown (full width)
   layout.push({ i: "model-breakdown", x: 0, y, w: 12, h: 4 });
 
   return layout;
@@ -70,21 +84,46 @@ export function getDefaultVisibleWidgets(): string[] {
   return WIDGET_DEFS.map((w) => w.id);
 }
 
-const LAYOUT_VERSION = "v3"; // bump this to invalidate old layouts
+const LAYOUT_VERSION = "v5"; // bump to invalidate old layouts
 const LAYOUT_KEY = `dashboard-layout-${LAYOUT_VERSION}`;
 const VISIBLE_KEY = `dashboard-visible-${LAYOUT_VERSION}`;
 
-export function saveLayout(_layout: Layout[] | null, visible: string[]) {
+export function saveLayout(layout: Layout[] | null, visible: string[]) {
+  if (layout) {
+    localStorage.setItem(LAYOUT_KEY, JSON.stringify(layout));
+  }
   localStorage.setItem(VISIBLE_KEY, JSON.stringify(visible));
 }
 
-export function loadLayout(): { layout: null; visible: string[] | null } {
+export function loadLayout(): { layout: Layout[] | null; visible: string[] | null } {
   try {
+    const layoutStr = localStorage.getItem(LAYOUT_KEY);
     const visibleStr = localStorage.getItem(VISIBLE_KEY);
-    return {
-      layout: null,
-      visible: visibleStr ? JSON.parse(visibleStr) : null,
-    };
+    let layout = layoutStr ? JSON.parse(layoutStr) : null;
+    const visible = visibleStr ? JSON.parse(visibleStr) : null;
+
+    // Validate the layout against current widget IDs
+    if (layout && Array.isArray(layout)) {
+      const validIds = new Set(WIDGET_DEFS.map((w) => w.id));
+      layout = layout.filter((item: Layout) => validIds.has(item.i));
+
+      // Add missing widgets from default layout
+      const presentIds = new Set(layout.map((item: Layout) => item.i));
+      const defaultLayout = getDefaultLayout();
+      const maxY = layout.reduce(
+        (max: number, item: Layout) => Math.max(max, item.y + item.h),
+        0
+      );
+      let appendY = maxY;
+      for (const def of defaultLayout) {
+        if (!presentIds.has(def.i)) {
+          layout.push({ ...def, y: appendY });
+          appendY += def.h;
+        }
+      }
+    }
+
+    return { layout, visible };
   } catch {
     return { layout: null, visible: null };
   }

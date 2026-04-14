@@ -1,11 +1,19 @@
 import { useState, useCallback, useMemo } from "react";
+import { ResponsiveGridLayout, useContainerWidth, verticalCompactor } from "react-grid-layout";
+import "react-grid-layout/css/styles.css";
+import "react-resizable/css/styles.css";
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Layout = any;
 
 import type { UsageData } from "../types";
 import {
   WIDGET_DEFS,
+  getDefaultLayout,
   getDefaultVisibleWidgets,
   saveLayout,
   loadLayout,
+  clearLayout,
 } from "../widgets/registry";
 import WidgetWrapper from "../widgets/WidgetWrapper";
 import AddWidgetModal from "./AddWidgetModal";
@@ -23,6 +31,8 @@ import SessionTimeline from "./SessionTimeline";
 import CacheEfficiency from "./CacheEfficiency";
 import TopProjects from "./TopProjects";
 import ModelCostComparison from "./ModelCostComparison";
+import ActivityHeatmap from "./ActivityHeatmap";
+import ModelsTimeline from "./ModelsTimeline";
 
 interface Props {
   data: UsageData;
@@ -31,44 +41,87 @@ interface Props {
 }
 
 export default function Dashboard({ data, onRefresh, loading }: Props) {
+  const { width: containerWidth, containerRef } = useContainerWidth({ initialWidth: 1200 });
   const saved = useMemo(() => loadLayout(), []);
+
+  const [layouts, setLayouts] = useState<{ lg: Layout[] }>({
+    lg: saved.layout ?? getDefaultLayout(),
+  });
   const [visibleWidgets, setVisibleWidgets] = useState<string[]>(
     saved.visible ?? getDefaultVisibleWidgets()
   );
+
   const [editMode, setEditMode] = useState(false);
   const [showModal, setShowModal] = useState(false);
-  const [snapshot, setSnapshot] = useState<string[] | null>(null);
+  const [snapshot, setSnapshot] = useState<{ lg: Layout[]; visible: string[] } | null>(null);
 
   const enterEditMode = useCallback(() => {
-    setSnapshot([...visibleWidgets]);
+    setSnapshot({ lg: JSON.parse(JSON.stringify(layouts.lg)), visible: [...visibleWidgets] });
     setEditMode(true);
-  }, [visibleWidgets]);
+  }, [layouts, visibleWidgets]);
 
   const saveAndExit = useCallback(() => {
-    saveLayout(null, visibleWidgets);
+    saveLayout(layouts.lg, visibleWidgets);
     setEditMode(false);
     setSnapshot(null);
-  }, [visibleWidgets]);
+  }, [layouts, visibleWidgets]);
 
   const cancelEdit = useCallback(() => {
-    if (snapshot) setVisibleWidgets(snapshot);
+    if (snapshot) {
+      setLayouts({ lg: snapshot.lg });
+      setVisibleWidgets(snapshot.visible);
+    }
     setEditMode(false);
     setSnapshot(null);
   }, [snapshot]);
 
-  const handleRemoveWidget = useCallback((id: string) => {
-    setVisibleWidgets((prev) => prev.filter((w) => w !== id));
-  }, []);
-
-  const handleToggleWidget = useCallback((id: string) => {
-    setVisibleWidgets((prev) =>
-      prev.includes(id) ? prev.filter((w) => w !== id) : [...prev, id]
-    );
-  }, []);
-
   const handleResetLayout = useCallback(() => {
-    setVisibleWidgets(getDefaultVisibleWidgets());
+    clearLayout();
+    const defaultLayout = getDefaultLayout();
+    const defaultVisible = getDefaultVisibleWidgets();
+    setLayouts({ lg: defaultLayout });
+    setVisibleWidgets(defaultVisible);
+    saveLayout(defaultLayout, defaultVisible);
   }, []);
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const handleLayoutChange = useCallback(
+    (...args: any[]) => {
+      if (!editMode) return;
+      const allLayouts = args[1] ?? {};
+      const lg = allLayouts.lg ?? args[0] ?? [];
+      setLayouts({ lg });
+    },
+    [editMode]
+  );
+
+  const handleRemoveWidget = useCallback(
+    (id: string) => {
+      if (!editMode) return;
+      setVisibleWidgets((prev) => prev.filter((w) => w !== id));
+    },
+    [editMode]
+  );
+
+  const handleToggleWidget = useCallback(
+    (id: string) => {
+      if (visibleWidgets.includes(id)) {
+        setVisibleWidgets((prev) => prev.filter((w) => w !== id));
+      } else {
+        setVisibleWidgets((prev) => [...prev, id]);
+        const def = WIDGET_DEFS.find((w) => w.id === id);
+        if (def && !layouts.lg.find((l: Layout) => l.i === id)) {
+          setLayouts((prev) => ({
+            lg: [
+              ...prev.lg,
+              { i: id, x: 0, y: Infinity, w: def.defaultW, h: def.defaultH },
+            ],
+          }));
+        }
+      }
+    },
+    [visibleWidgets, layouts]
+  );
 
   function renderWidget(id: string) {
     switch (id) {
@@ -85,13 +138,29 @@ export default function Dashboard({ data, onRefresh, loading }: Props) {
       case "projects": return <ProjectsTable projects={data.projects} />;
       case "model-breakdown": return <ModelBreakdown models={data.modelUsage} />;
       case "model-cost": return <ModelCostComparison models={data.modelUsage} />;
+      case "activity-heatmap": {
+        const totalTokens = data.projects.reduce((s, p) => s + p.totalTokens, 0);
+        return (
+          <ActivityHeatmap
+            timeline={data.timeline}
+            totalMessages={data.totalMessages}
+            totalSessions={data.totalSessions}
+            totalTokens={totalTokens}
+          />
+        );
+      }
+      case "models-timeline": return <ModelsTimeline timeline={data.timeline} />;
       default: return null;
     }
   }
 
-  // Classify widgets by size for CSS grid placement
-  const fullWidthIds = new Set(["quick-stats", "projects", "model-breakdown", "model-cost"]);
-  const chartIds = new Set(["weekly-activity", "token-dist", "cost-breakdown", "top-projects", "daily-tokens", "session-timeline"]);
+  const widgetMinSizes = useMemo(() => {
+    const map: Record<string, { minW: number; minH: number }> = {};
+    for (const def of WIDGET_DEFS) {
+      map[def.id] = { minW: def.minW ?? 2, minH: def.minH ?? 2 };
+    }
+    return map;
+  }, []);
 
   return (
     <div className={`app dashboard ${editMode ? "edit-mode" : ""}`}>
@@ -99,7 +168,7 @@ export default function Dashboard({ data, onRefresh, loading }: Props) {
         <div className="header-left">
           <h1>Claude Code Usage</h1>
           {editMode ? (
-            <span className="subtitle edit-label">Editing — toggle widgets on/off</span>
+            <span className="subtitle edit-label">Editing — drag to move, corners to resize, X to remove</span>
           ) : (
             <span className="subtitle">Real-time dashboard</span>
           )}
@@ -143,57 +212,43 @@ export default function Dashboard({ data, onRefresh, loading }: Props) {
         </div>
       </header>
 
-      {/* Full-width widgets */}
-      {visibleWidgets.filter((id) => id === "quick-stats").map((id) => {
-        const def = WIDGET_DEFS.find((w) => w.id === id)!;
-        return (
-          <div key={id} className="widget-slot widget-full">
-            <WidgetWrapper title={def.name} tooltip={def.tooltip} widgetId={id} editMode={editMode} onRemove={handleRemoveWidget}>
-              {renderWidget(id)}
-            </WidgetWrapper>
-          </div>
-        );
-      })}
-
-      {/* 3-column row: Rate Limits + Session + Cache */}
-      <div className="widget-row widget-row-3">
-        {visibleWidgets.filter((id) => ["rate-limits", "session", "cache-efficiency"].includes(id)).map((id) => {
-          const def = WIDGET_DEFS.find((w) => w.id === id)!;
+      <div ref={containerRef} />
+      <ResponsiveGridLayout
+        className="dashboard-grid-layout"
+        width={containerWidth || 1200}
+        layouts={layouts}
+        breakpoints={{ lg: 1200, md: 900, sm: 600 }}
+        cols={{ lg: 12, md: 8, sm: 4 }}
+        rowHeight={60}
+        compactor={verticalCompactor}
+        dragConfig={editMode ? { handle: ".drag-handle" } : { handle: ".no-drag-impossible" }}
+        resizeConfig={editMode ? {} : { handles: [] as any }}
+        onLayoutChange={handleLayoutChange as any}
+        margin={[12, 12] as any}
+      >
+        {visibleWidgets.map((id) => {
+          const def = WIDGET_DEFS.find((w) => w.id === id);
+          if (!def) return null;
+          const mins = widgetMinSizes[id] ?? { minW: 2, minH: 2 };
+          const existingLayout = layouts.lg.find((l: Layout) => l.i === id);
+          const gridConfig = existingLayout
+            ? { ...existingLayout, minW: mins.minW, minH: mins.minH }
+            : { i: id, x: 0, y: Infinity, w: def.defaultW, h: def.defaultH, minW: mins.minW, minH: mins.minH };
           return (
-            <div key={id} className="widget-slot">
-              <WidgetWrapper title={def.name} tooltip={def.tooltip} widgetId={id} editMode={editMode} onRemove={handleRemoveWidget}>
+            <div key={id} data-grid={gridConfig}>
+              <WidgetWrapper
+                title={def.name}
+                tooltip={def.tooltip}
+                widgetId={id}
+                editMode={editMode}
+                onRemove={handleRemoveWidget}
+              >
                 {renderWidget(id)}
               </WidgetWrapper>
             </div>
           );
         })}
-      </div>
-
-      {/* 2-column chart rows */}
-      <div className="widget-row widget-row-2">
-        {visibleWidgets.filter((id) => chartIds.has(id)).map((id) => {
-          const def = WIDGET_DEFS.find((w) => w.id === id)!;
-          return (
-            <div key={id} className="widget-slot widget-chart">
-              <WidgetWrapper title={def.name} tooltip={def.tooltip} widgetId={id} editMode={editMode} onRemove={handleRemoveWidget}>
-                {renderWidget(id)}
-              </WidgetWrapper>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Full-width widgets at bottom */}
-      {visibleWidgets.filter((id) => fullWidthIds.has(id) && id !== "quick-stats").map((id) => {
-        const def = WIDGET_DEFS.find((w) => w.id === id)!;
-        return (
-          <div key={id} className="widget-slot widget-full">
-            <WidgetWrapper title={def.name} tooltip={def.tooltip} widgetId={id} editMode={editMode} onRemove={handleRemoveWidget}>
-              {renderWidget(id)}
-            </WidgetWrapper>
-          </div>
-        );
-      })}
+      </ResponsiveGridLayout>
 
       {showModal && (
         <AddWidgetModal
